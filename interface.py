@@ -26,7 +26,7 @@ class FinanceManagerUI:
         self.db = db
 
 
-        self.root.title("PennyPal - Personal Finance Manager")
+        self.root.title("Cash Captain - Personal Finance Manager")
         self.root.geometry("900x600")
 
 
@@ -75,7 +75,7 @@ class FinanceManagerUI:
 
 
     def setup_dashboard_tab(self):
-        tk.Label(self.dashboard_tab, text="PennyPal Dashboard",
+        tk.Label(self.dashboard_tab, text="Cash Captain Dashboard",
                  font=("Helvetica", 18)).pack(pady=20)
 
 
