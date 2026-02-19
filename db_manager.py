@@ -1,106 +1,181 @@
 import sqlite3
+import hashlib
+import os
+
 
 class DatabaseManager:
     def __init__(self, db_name="finance.db"):
         self.conn = sqlite3.connect(db_name)
         self.cursor = self.conn.cursor()
-        self.create_tables()  # Creates transactions table
-        self.create_user_table()  # Ensures user table exists
+        self.create_tables()
 
-    # ----- USER METHODS -----
-    def create_user_table(self):
-        """Create the users table if it doesn't exist."""
+        # Store guest transactions in memory
+        self.guest_transactions = []
+
+    # --------------------------
+    # CREATE TABLES
+    # --------------------------
+
+    def create_tables(self):
+        """Create users and transactions tables if they don't exist."""
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE,
-                password TEXT
+                username TEXT UNIQUE NOT NULL,
+                password BLOB NOT NULL
+            )
+        """)
+
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                category TEXT NOT NULL,
+                date TEXT NOT NULL,
+                type TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
         self.conn.commit()
 
+    # --------------------------
+    # PASSWORD SECURITY
+    # --------------------------
+
+    def hash_password(self, password):
+        salt = os.urandom(32)
+        key = hashlib.pbkdf2_hmac(
+            'sha256',
+            password.encode('utf-8'),
+            salt,
+            100000
+        )
+        return salt + key
+
+    def verify_password(self, stored_password, provided_password):
+        salt = stored_password[:32]
+        stored_key = stored_password[32:]
+        new_key = hashlib.pbkdf2_hmac(
+            'sha256',
+            provided_password.encode('utf-8'),
+            salt,
+            100000
+        )
+        return new_key == stored_key
+
+    # --------------------------
+    # USER METHODS
+    # --------------------------
+
     def create_user(self, username, password):
-        """Create a new user account."""
         try:
+            hashed_password = self.hash_password(password)
             self.cursor.execute(
                 "INSERT INTO users (username, password) VALUES (?, ?)",
-                (username, password)
+                (username, hashed_password)
             )
             self.conn.commit()
             return True
         except sqlite3.IntegrityError:
-            return False  # username already exists
+            return False
 
     def validate_user(self, username, password):
-        """Check if login credentials are correct."""
         self.cursor.execute(
-            "SELECT id FROM users WHERE username=? AND password=?",
-            (username, password)
+            "SELECT id, password FROM users WHERE username=?",
+            (username,)
         )
         result = self.cursor.fetchone()
-        return result is not None
+        if result:
+            user_id, stored_password = result
+            if self.verify_password(stored_password, password):
+                return user_id
+        return None
 
-    # ----- TRANSACTIONS METHODS -----
-    def create_tables(self):
-        """Create the transactions table if it doesn't exist."""
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                amount REAL,
-                category TEXT,
-                date TEXT,
-                type TEXT
+    # --------------------------
+    # TRANSACTION METHODS
+    # --------------------------
+
+    def add_transaction(self, user_id, amount, category, date, t_type):
+        if user_id is None:
+            # Guest transaction
+            self.guest_transactions.append(
+                {"id": len(self.guest_transactions)+1, "amount": amount,
+                 "category": category, "date": date, "type": t_type}
             )
-        """)
-        self.conn.commit()
+        else:
+            self.cursor.execute("""
+                INSERT INTO transactions (user_id, amount, category, date, type)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, amount, category, date, t_type))
+            self.conn.commit()
 
-    def add_transaction(self, amount, category, date, t_type):
-        self.cursor.execute(
-            "INSERT INTO transactions (amount, category, date, type) VALUES (?, ?, ?, ?)",
-            (amount, category, date, t_type)
-        )
-        self.conn.commit()
+    def get_all_transactions(self, user_id):
+        if user_id is None:
+            return [
+                (t["id"], t["amount"], t["category"], t["date"], t["type"])
+                for t in self.guest_transactions
+            ]
+        else:
+            self.cursor.execute("""
+                SELECT id, amount, category, date, type
+                FROM transactions
+                WHERE user_id = ?
+                ORDER BY date DESC
+            """, (user_id,))
+            return self.cursor.fetchall()
 
-    def delete_transaction(self, tid):
-        self.cursor.execute("DELETE FROM transactions WHERE id=?", (tid,))
-        self.conn.commit()
+    def delete_transaction(self, user_id, transaction_id):
+        if user_id is None:
+            self.guest_transactions = [
+                t for t in self.guest_transactions if t["id"] != int(transaction_id)
+            ]
+        else:
+            self.cursor.execute("""
+                DELETE FROM transactions
+                WHERE id = ? AND user_id = ?
+            """, (transaction_id, user_id))
+            self.conn.commit()
 
-    def update_transaction(self, tid, amount, category, date):
-        self.cursor.execute(
-            """
-            UPDATE transactions
-            SET amount = ?, category = ?, date = ?
-            WHERE id = ?
-            """,
-            (amount, category, date, tid)
-        )
-        self.conn.commit()
+    def update_transaction(self, user_id, transaction_id, amount, category, date):
+        if user_id is None:
+            for t in self.guest_transactions:
+                if t["id"] == int(transaction_id):
+                    t["amount"] = amount
+                    t["category"] = category
+                    t["date"] = date
+                    break
+        else:
+            self.cursor.execute("""
+                UPDATE transactions
+                SET amount = ?, category = ?, date = ?
+                WHERE id = ? AND user_id = ?
+            """, (amount, category, date, transaction_id, user_id))
+            self.conn.commit()
 
-    def get_all_transactions(self):
-        self.cursor.execute(
-            "SELECT id, amount, category, date, type FROM transactions"
-        )
-        return self.cursor.fetchall()
+    def transaction_belongs_to_user(self, user_id, transaction_id):
+        if user_id is None:
+            return any(t["id"] == int(transaction_id) for t in self.guest_transactions)
+        else:
+            self.cursor.execute(
+                "SELECT 1 FROM transactions WHERE id=? AND user_id=?",
+                (transaction_id, user_id)
+            )
+            return self.cursor.fetchone() is not None
 
-    def get_transactions_filtered(self, category=None, start_date=None, end_date=None):
-        query = "SELECT id, amount, category, date, type FROM transactions WHERE 1=1"
-        params = []
+    def reset_user_transactions(self, user_id):
+        if user_id is None:
+            self.guest_transactions = []
+        else:
+            self.cursor.execute(
+                "DELETE FROM transactions WHERE user_id = ?",
+                (user_id,)
+            )
+            self.conn.commit()
 
-        if category:
-            query += " AND category = ?"
-            params.append(category)
-        if start_date:
-            query += " AND date >= ?"
-            params.append(start_date)
-        if end_date:
-            query += " AND date <= ?"
-            params.append(end_date)
+    # --------------------------
+    # UTILITIES
+    # --------------------------
 
-        query += " ORDER BY date DESC"
-        self.cursor.execute(query, params)
-        return self.cursor.fetchall()
-
-    def reset_database(self):
-        """Delete all transactions."""
-        self.cursor.execute("DELETE FROM transactions")
-        self.conn.commit()
+    def close(self):
+        self.conn.close()
