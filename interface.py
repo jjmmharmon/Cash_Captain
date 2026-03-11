@@ -281,11 +281,40 @@ class FinanceManagerUI:
 
     # -------------------- REPORTS TAB --------------------
     def setup_reports_tab(self):
-        frame = self.reports_tab
-        tk.Label(frame, text="Reports & Export", font=("Helvetica", 16)).pack(pady=10)
-        tk.Button(frame, text="Bar Chart: Daily Net Amount", command=self.show_bar_chart).pack(pady=10)
-        tk.Button(frame, text="Export All Transactions to CSV", command=self.export_csv).pack(pady=10)
-        tk.Button(frame, text="Reset ALL Data (Dangerous)", fg="red", command=self.reset_data_warning).pack(pady=10)
+     frame = self.reports_tab
+
+     tk.Label(frame, text="Reports & Export", font=("Helvetica", 16)).pack(pady=10)
+
+     tk.Button(
+        frame,
+        text="Bar Chart: Daily Net Amount",
+        command=self.show_bar_chart
+     ).pack(pady=10)
+
+     tk.Button(
+        frame,
+        text="Pie Chart: Spending by Category",
+        command=self.show_expense_pie_chart
+     ).pack(pady=10)
+
+     tk.Button(
+        frame,
+        text="Pie Chart: Income vs Expenses",
+        command=self.show_income_expense_pie
+     ).pack(pady=10)
+
+     tk.Button(
+        frame,
+        text="Export All Transactions to CSV",
+        command=self.export_csv
+     ).pack(pady=10)
+
+     tk.Button(
+        frame,
+        text="Reset ALL Data (Dangerous)",
+        fg="red",
+        command=self.reset_data_warning
+     ).pack(pady=10)
 
     # -------------------- BAR GRAPH --------------------
     def show_bar_chart(self):
@@ -323,6 +352,49 @@ class FinanceManagerUI:
 
         plt.xticks(rotation=45)
 
+        plt.tight_layout()
+        plt.show()
+
+    # -------------------- PIE CHART --------------------
+    def show_expense_pie_chart(self):
+        rows = self.db.get_all_transactions(self.user_id)
+        if not rows:
+            messagebox.showerror("Error", "No data available.")
+            return
+        category_totals = {}
+        for _, amount, category, _, _ in rows:
+            if amount < 0:
+                category_totals[category] = category_totals.get(category,0)+abs(amount)
+        if not category_totals:
+            messagebox.showinfo("No Expenses", "No expense data available.")
+            return
+        labels = list(category_totals.keys())
+        values = list(category_totals.values())
+        plt.figure(figsize=(6,6))
+        plt.pie(values, labels=labels, autopct='%1.1f%%', startangle=140)
+        plt.title("Expense Breakdown by Category")
+        plt.tight_layout()
+        plt.show()
+
+    def show_income_expense_pie(self):
+        rows = self.db.get_all_transactions(self.user_id)
+        if not rows:
+            messagebox.showerror("Error", "No data available.")
+            return
+        totals = {"Income":0,"Expenses":0}
+        for _, amount, _, _, _ in rows:
+            if amount >= 0:
+                totals["Income"] += amount
+            else:
+                totals["Expenses"] += abs(amount)
+        if totals["Income"]==0 and totals["Expenses"]==0:
+            messagebox.showinfo("No Data", "No transactions to display.")
+            return
+        labels = list(totals.keys())
+        values = list(totals.values())
+        plt.figure(figsize=(6,6))
+        plt.pie(values, labels=labels, autopct='%1.1f%%', colors=["green","red"], startangle=140)
+        plt.title("Income vs Expenses")
         plt.tight_layout()
         plt.show()
     # -------------------- CSV EXPORT --------------------
