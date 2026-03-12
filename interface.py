@@ -1,11 +1,17 @@
+import customtkinter as ctk
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 import matplotlib.pyplot as plt
 import csv
 
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+
 class FinanceManagerUI:
     """ Cash Captain - Personal Finance Manager GUI """
+
     def __init__(self, root, db, user_id=None):
         self.root = root
         self.db = db
@@ -17,7 +23,7 @@ class FinanceManagerUI:
         self.categories = ["Groceries", "Gas", "Savings", "Entertainment", "Rent", "Miscellaneous", "Income"]
         self.budgets = {cat: 0.0 for cat in self.categories}
 
-        self.follow_budget = tk.BooleanVar(value=True)
+        self.follow_budget = ctk.BooleanVar(value=True)
 
         self.create_tabs()
         self.setup_dashboard_tab()
@@ -28,14 +34,15 @@ class FinanceManagerUI:
         self.load_transactions()
 
     # -------------------- TABS --------------------
+
     def create_tabs(self):
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(expand=True, fill="both")
 
-        self.dashboard_tab = ttk.Frame(self.notebook)
-        self.transactions_tab = ttk.Frame(self.notebook)
-        self.budgets_tab = ttk.Frame(self.notebook)
-        self.reports_tab = ttk.Frame(self.notebook)
+        self.dashboard_tab = ctk.CTkFrame(self.notebook)
+        self.transactions_tab = ctk.CTkFrame(self.notebook)
+        self.budgets_tab = ctk.CTkFrame(self.notebook)
+        self.reports_tab = ctk.CTkFrame(self.notebook)
 
         self.notebook.add(self.dashboard_tab, text="Dashboard")
         self.notebook.add(self.transactions_tab, text="Transactions")
@@ -43,139 +50,194 @@ class FinanceManagerUI:
         self.notebook.add(self.reports_tab, text="Reports")
 
     # -------------------- DASHBOARD --------------------
-    def setup_dashboard_tab(self):
-        tk.Label(self.dashboard_tab, text="Cash Captain Dashboard", font=("Helvetica", 18)).pack(pady=20)
-        self.balance_label = tk.Label(self.dashboard_tab, text="Balance: $0.00", font=("Helvetica", 16), fg="blue")
-        self.balance_label.pack(pady=10)
-        tk.Button(self.dashboard_tab, text="Refresh", command=self.load_transactions).pack(pady=5)
 
-    def update_dashboard(self):
-        rows = self.db.get_all_transactions(self.user_id)
-        balance = sum(amount for _, amount, _, _, _ in rows)
-        self.balance_label.config(text=f"Balance: ${balance:.2f}")
+    def setup_dashboard_tab(self):
+
+    # center container
+     center_frame = ctk.CTkFrame(self.dashboard_tab, fg_color="transparent")
+     center_frame.pack(expand=True)
+     
+    # title
+     title = ctk.CTkLabel(
+    center_frame,
+        text="Cash Captain",
+        font=ctk.CTkFont(family="Segoe UI", size=42, weight="bold")
+    )
+     title.pack(pady=(10,5))
+
+     subtitle = ctk.CTkLabel(
+     center_frame,
+        text="Personal Finance Dashboard",
+        font=ctk.CTkFont(size=18)
+    )
+     subtitle.pack(pady=(0,20))
+
+    # balance
+     self.balance_label = ctk.CTkLabel(
+      center_frame,
+        text="Balance: $0.00",
+        font=ctk.CTkFont(size=28, weight="bold"),
+        text_color="#4da6ff"
+    )
+     self.balance_label.pack(pady=10)
+
+    # refresh button
+     ctk.CTkButton(
+      center_frame,
+        text="Refresh",
+        width=160,
+        height=40,
+        font=ctk.CTkFont(size=16),
+        command=self.load_transactions
+    ).pack(pady=10)
 
     # -------------------- TRANSACTIONS TAB --------------------
+
     def setup_transactions_tab(self):
+
         frame = self.transactions_tab
 
-        # Split frame
-        split_frame = tk.Frame(frame)
+        split_frame = ctk.CTkFrame(frame)
         split_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # LEFT: Transactions
-        left_frame = tk.Frame(split_frame)
+        left_frame = ctk.CTkFrame(split_frame)
         left_frame.pack(side="left", fill="both", expand=True)
 
-        # Add Transaction
-        input_frame = tk.LabelFrame(left_frame, text="Add Transaction")
+        input_frame = ctk.CTkFrame(left_frame)
         input_frame.pack(fill="x", pady=5)
 
-        tk.Label(input_frame, text="Amount:").grid(row=0, column=0, sticky="e")
-        self.amount_entry = tk.Entry(input_frame)
+        ctk.CTkLabel(input_frame, text="Amount:").grid(row=0, column=0, sticky="e")
+
+        self.amount_entry = ctk.CTkEntry(input_frame)
         self.amount_entry.grid(row=0, column=1, padx=5)
 
-        tk.Label(input_frame, text="Category:").grid(row=1, column=0, sticky="e")
-        self.category_var = tk.StringVar(value=self.categories[0])
+        ctk.CTkLabel(input_frame, text="Category:").grid(row=1, column=0, sticky="e")
+
+        self.category_var = ctk.StringVar(value=self.categories[0])
+
         self.category_dropdown = ttk.Combobox(
-            input_frame, textvariable=self.category_var, values=self.categories,
-            state="readonly", width=20
+            input_frame,
+            textvariable=self.category_var,
+            values=self.categories,
+            state="readonly",
+            width=20
         )
         self.category_dropdown.grid(row=1, column=1, padx=5)
 
-        tk.Label(input_frame, text="Date (YYYY-MM-DD):").grid(row=2, column=0, sticky="e")
-        self.date_entry = tk.Entry(input_frame)
+        ctk.CTkLabel(input_frame, text="Date (YYYY-MM-DD):").grid(row=2, column=0, sticky="e")
+
+        self.date_entry = ctk.CTkEntry(input_frame)
         self.date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
         self.date_entry.grid(row=2, column=1, padx=5)
 
-        tk.Button(input_frame, text="Add Income", command=lambda: self.add_transaction("income")).grid(row=3, column=0, pady=5)
-        tk.Button(input_frame, text="Add Expense", command=lambda: self.add_transaction("expense")).grid(row=3, column=1, pady=5)
+        ctk.CTkButton(input_frame,
+                      text="Add Income",
+                      command=lambda: self.add_transaction("income")).grid(row=3, column=0, pady=5)
 
-        # Transaction List
-        list_frame = tk.Frame(left_frame)
+        ctk.CTkButton(input_frame,
+                      text="Add Expense",
+                      command=lambda: self.add_transaction("expense")).grid(row=3, column=1, pady=5)
+
+        list_frame = ctk.CTkFrame(left_frame)
         list_frame.pack(fill="both", expand=True, pady=5)
 
-        self.transaction_list = tk.Listbox(list_frame)
-        self.transaction_list.pack(side="left", fill="both", expand=True)
-        scrollbar = tk.Scrollbar(list_frame, command=self.transaction_list.yview)
-        scrollbar.pack(side="right", fill="y")
-        self.transaction_list.config(yscrollcommand=scrollbar.set)
+        self.transaction_list = ctk.CTkTextbox(list_frame, height=200)
+        self.transaction_list.pack(fill="both", expand=True)
 
-        tk.Button(left_frame, text="Delete Selected Transaction", command=self.delete_transaction).pack(pady=5)
-        tk.Button(left_frame, text="Edit Selected Transaction", command=self.open_edit_window).pack(pady=5)
+        ctk.CTkButton(left_frame,
+                      text="Delete Selected Transaction",
+                      command=self.delete_transaction).pack(pady=5)
 
-        # RIGHT: Budget Overview
-        right_frame = tk.Frame(split_frame, width=250)
+        ctk.CTkButton(left_frame,
+                      text="Edit Selected Transaction",
+                      command=self.open_edit_window).pack(pady=5)
+
+        # ---------------- Budget Overview ----------------
+
+        right_frame = ctk.CTkFrame(split_frame, width=250)
         right_frame.pack(side="right", fill="y", padx=10)
         right_frame.pack_propagate(False)
 
-        tk.Label(right_frame, text="Budget Overview", font=("Helvetica", 14)).pack(pady=5)
+        ctk.CTkLabel(right_frame,
+                     text="Budget Overview",
+                     font=("Helvetica", 14)).pack(pady=5)
 
-        self.budget_toggle_btn = tk.Button(
-            right_frame, text="Follow Budget: ON", bg="green", fg="white",
+        self.budget_toggle_btn = ctk.CTkButton(
+            right_frame,
+            text="Follow Budget: ON",
+            fg_color="green",
+            hover_color="#0b5e13",
             command=self.toggle_budget_mode
         )
         self.budget_toggle_btn.pack(pady=5)
 
         self.budget_labels = {}
+
         for cat in self.categories:
-            lbl = tk.Label(right_frame, text=f"{cat}: $0.00 / ${self.budgets[cat]:.2f}")
+            lbl = ctk.CTkLabel(right_frame,
+                               text=f"{cat}: $0.00 / ${self.budgets[cat]:.2f}")
             lbl.pack(anchor="w")
             self.budget_labels[cat] = lbl
 
     def toggle_budget_mode(self):
+
         if self.follow_budget.get():
             self.follow_budget.set(False)
-            self.budget_toggle_btn.config(text="Follow Budget: OFF", bg="red")
+            self.budget_toggle_btn.configure(text="Follow Budget: OFF",
+                                             fg_color="red")
         else:
             self.follow_budget.set(True)
-            self.budget_toggle_btn.config(text="Follow Budget: ON", bg="green")
-        self.update_budget_labels()  # update display without warnings
+            self.budget_toggle_btn.configure(text="Follow Budget: ON",
+                                             fg_color="green")
+
+        self.update_budget_labels()
 
     def update_budget_labels(self):
+
         rows = self.db.get_all_transactions(self.user_id)
+
         for cat in self.categories:
             spent = sum(abs(a) for _, a, c, _, _ in rows if c == cat and a < 0)
+
             if self.follow_budget.get():
-                self.budget_labels[cat].config(text=f"{cat}: ${spent:.2f} / ${self.budgets[cat]:.2f}")
+                self.budget_labels[cat].configure(
+                    text=f"{cat}: ${spent:.2f} / ${self.budgets[cat]:.2f}")
             else:
-                self.budget_labels[cat].config(text=f"{cat}: ${spent:.2f} (Budget Ignored)")
+                self.budget_labels[cat].configure(
+                    text=f"{cat}: ${spent:.2f} (Budget Ignored)")
 
-    # -------------------- EDIT TRANSACTION --------------------
+    # -------------------- EDIT WINDOW --------------------
+
     def open_edit_window(self):
-        try:
-            selected = self.transaction_list.get(self.transaction_list.curselection())
-            tid, category, amount, date = selected.split(" | ")
-        except:
-            messagebox.showerror("Error", "Please select a transaction to edit.")
-            return
 
-        amount = amount.replace("+", "")
-        self.edit_id = tid
-
-        self.edit_win = tk.Toplevel(self.root)
+        self.edit_win = ctk.CTkToplevel(self.root)
         self.edit_win.title("Edit Transaction")
         self.edit_win.geometry("350x250")
 
-        tk.Label(self.edit_win, text="Amount:").pack()
-        self.edit_amount = tk.Entry(self.edit_win)
-        self.edit_amount.insert(0, amount)
+        ctk.CTkLabel(self.edit_win, text="Amount:").pack()
+        self.edit_amount = ctk.CTkEntry(self.edit_win)
         self.edit_amount.pack()
 
-        tk.Label(self.edit_win, text="Category:").pack()
-        self.edit_category_var = tk.StringVar(value=category)
+        ctk.CTkLabel(self.edit_win, text="Category:").pack()
+
+        self.edit_category_var = ctk.StringVar(value=self.categories[0])
+
         self.edit_category_dropdown = ttk.Combobox(
-            self.edit_win, textvariable=self.edit_category_var,
-            values=self.categories, state="readonly"
+            self.edit_win,
+            textvariable=self.edit_category_var,
+            values=self.categories,
+            state="readonly"
         )
         self.edit_category_dropdown.pack()
 
-        tk.Label(self.edit_win, text="Date:").pack()
-        self.edit_date = tk.Entry(self.edit_win)
-        self.edit_date.insert(0, date)
+        ctk.CTkLabel(self.edit_win, text="Date:").pack()
+
+        self.edit_date = ctk.CTkEntry(self.edit_win)
         self.edit_date.pack()
 
-        tk.Button(self.edit_win, text="Save Changes", command=self.save_transaction_edits).pack(pady=10)
-
+        ctk.CTkButton(self.edit_win,
+                      text="Save Changes",
+                      command=self.save_transaction_edits).pack(pady=10)
     def save_transaction_edits(self):
         try:
             amount = float(self.edit_amount.get().replace("+", ""))
