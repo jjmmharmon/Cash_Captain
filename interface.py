@@ -112,9 +112,6 @@ class FinanceManagerUI:
         self.date_entry = ctk.CTkEntry(left)
         self.date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
         self.date_entry.pack(pady=5)
-        self.date_entry = ctk.CTkEntry(left)
-        self.date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
-        self.date_entry.pack(pady=5)
 
         # Add Expense button first
         ctk.CTkButton(
