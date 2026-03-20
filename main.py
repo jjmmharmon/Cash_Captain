@@ -1,12 +1,12 @@
-import tkinter as tk
+from logging import root
+
 import customtkinter as ctk
 from tkinter import messagebox
 from db_manager import DatabaseManager
 from interface import FinanceManagerUI
 
-# Theme settings
-ctk.set_appearance_mode("dark")      # "dark" or "light"
-ctk.set_default_color_theme("blue")  # "blue", "green", "dark-blue"
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
 
 class LoginPage:
@@ -17,15 +17,19 @@ class LoginPage:
 
         self.db = DatabaseManager("finance.db")
 
-        # Title
         ctk.CTkLabel(root, text="Cash Captain", font=("Helvetica", 24)).pack(pady=30)
 
-        # Buttons
-        ctk.CTkButton(root, text="Login", width=200, command=self.show_login).pack(pady=5)
-        ctk.CTkButton(root, text="Create User", width=200, command=self.show_create).pack(pady=5)
-        ctk.CTkButton(root, text="Continue as Guest", width=200, command=self.guest_login).pack(pady=5)
+        ctk.CTkButton(root, text="Login", width=200, command=self.show_login).pack(
+            pady=5
+        )
+        ctk.CTkButton(
+            root, text="Create User", width=200, command=self.show_create
+        ).pack(pady=5)
+        ctk.CTkButton(
+            root, text="Continue as Guest", width=200, command=self.guest_login
+        ).pack(pady=5)
 
-    # -------------------- LOGIN POPUP --------------------
+    # ---------------- LOGIN ----------------
     def show_login(self):
         self.popup = ctk.CTkToplevel(self.root)
         self.popup.title("Login")
@@ -42,7 +46,20 @@ class LoginPage:
 
         ctk.CTkButton(self.popup, text="Login", command=self.login_user).pack(pady=15)
 
-    # -------------------- CREATE USER POPUP --------------------
+    def login_user(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+
+        user_id = self.db.validate_user(username, password)
+
+        if user_id:
+            messagebox.showinfo("Success", "Login successful!")
+            self.popup.destroy()
+            self.start_dashboard(user_id)
+        else:
+            messagebox.showerror("Error", "Invalid credentials")
+
+    # ---------------- CREATE USER ----------------
     def show_create(self):
         self.popup = ctk.CTkToplevel(self.root)
         self.popup.title("Create User")
@@ -59,20 +76,6 @@ class LoginPage:
 
         ctk.CTkButton(self.popup, text="Create", command=self.create_user).pack(pady=15)
 
-    # -------------------- LOGIN FUNCTION --------------------
-    def login_user(self):
-        username = self.username_entry.get()
-        password = self.password_entry.get()
-
-        if self.db.validate_user(username, password):
-            messagebox.showinfo("Success", "Login successful!")
-            self.popup.destroy()
-            self.root.withdraw()
-            self.start_dashboard(username)
-        else:
-            messagebox.showerror("Error", "Invalid credentials")
-
-    # -------------------- CREATE USER --------------------
     def create_user(self):
         username = self.new_username.get()
         password = self.new_password.get()
@@ -83,21 +86,35 @@ class LoginPage:
         else:
             messagebox.showerror("Error", "Username already exists")
 
-    # -------------------- GUEST LOGIN --------------------
+    # ---------------- GUEST ----------------
     def guest_login(self):
-        self.root.withdraw()
-        self.start_dashboard()
+        # Close popup if open
+        if hasattr(self, "popup"):
+            self.popup.destroy()
 
-    # -------------------- START DASHBOARD --------------------
-    def start_dashboard(self, user_id=None):
-        dash = ctk.CTkToplevel(self.root)
-        dash.title("Cash Captain Dashboard")
-        dash.geometry("900x600")
+        self.start_dashboard(None)
 
+    # ---------------- DASHBOARD ----------------
+    def start_dashboard(self, user_id):
+
+        # 🔴 Destroy login window completely
+        self.root.destroy()
+
+        # ✅ Create NEW root window for dashboard
+        dash = ctk.CTk()
+
+        if user_id:
+            dash.title("Cash Captain")
+        else:
+            dash.title("Cash Captain (Guest Mode)")
+
+        # Launch app
         FinanceManagerUI(dash, self.db, user_id)
 
+        dash.mainloop()
 
-# -------------------- MAIN PROGRAM --------------------
+
+# ---------------- MAIN ----------------
 if __name__ == "__main__":
     root = ctk.CTk()
     LoginPage(root)
