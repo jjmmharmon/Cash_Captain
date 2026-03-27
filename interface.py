@@ -13,7 +13,7 @@ class FinanceManagerUI:
         self.user_id = user_id
 
         # Categories must be defined first
-        self.categories = [
+        self.default_categories = [
             "Groceries",
             "Gas",
             "Rent",
@@ -21,9 +21,10 @@ class FinanceManagerUI:
             "Savings",
             "Misc",
         ]
-
-        self.budgets = {cat: 0 for cat in self.categories}
-        self.guest_budgets = {cat: 0 for cat in self.categories}  # Guest budgets
+        self.next_guest_tid = 1  # Unique ID counter for guest transactions
+        self.custom_categories = []
+        self.budgets = {cat: 0 for cat in self.default_categories}
+        self.guest_budgets = {cat: 0 for cat in self.default_categories}
         self.guest_transactions = []  # Guest transactions
         self.follow_budget = True
 
@@ -55,16 +56,56 @@ class FinanceManagerUI:
 
     # ---------------- DASHBOARD ----------------
     def setup_dashboard_tab(self):
-        ctk.CTkLabel(self.dashboard_tab, text="Cash Captain", font=("Arial", 30)).pack(
-            pady=20
-        )
-        self.balance_label = ctk.CTkLabel(
-            self.dashboard_tab, text="Balance: $0.00", font=("Arial", 22)
-        )
-        self.balance_label.pack(pady=10)
-        ctk.CTkButton(
-            self.dashboard_tab, text="Refresh", command=self.load_transactions
+        center_frame = ctk.CTkFrame(self.dashboard_tab)
+        center_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+        ctk.CTkLabel(
+            center_frame, text="Cash Captain", font=("Cambria", 60), text_color="blue"
         ).pack(pady=10)
+
+        self.balance_label = ctk.CTkLabel(
+            center_frame,
+            text="Balance: $0.00",
+            font=("Calibri", 40),
+            text_color="green",
+        )
+        self.balance_label.pack(pady=8)
+
+        ctk.CTkButton(
+            center_frame,
+            text="Refresh",
+            command=self.load_transactions,
+            font=("Calibri", 20),
+        ).pack(pady=8)
+
+    # ---------------- CATEGORIES Getter ----------------
+    def get_all_categories(self):
+        return self.default_categories + self.custom_categories
+
+    # ---------------- ADD CUSTOM CATEGORY ----------------
+    def add_custom_category(self, cat):
+        self.custom_categories.append(cat)
+
+        # Add to budget data
+        self.budgets[cat] = 0
+        self.guest_budgets[cat] = 0
+
+        # ✅ Add to Budget Tab
+        self.add_custom_category_to_budget_tab(cat)
+
+        # ✅ Add to right-side overview
+        self.add_custom_category_to_overview(cat)
+
+        # ✅ Update transaction dropdown
+        if hasattr(self, "category_dropdown"):
+            self.category_dropdown["values"] = self.get_all_categories()
+
+        # ✅ Update filter dropdown
+        if hasattr(self, "filter_dropdown"):
+            self.filter_dropdown["values"] = ["All"] + self.get_all_categories()
+
+        if hasattr(self, "budget_labels"):
+            self.update_budget()
 
     # ---------------- TRANSACTIONS ----------------
     def setup_transactions_tab(self):
@@ -101,13 +142,14 @@ class FinanceManagerUI:
         self.amount_entry = ctk.CTkEntry(left, placeholder_text="Amount")
         self.amount_entry.pack(pady=5)
 
-        self.category_var = tk.StringVar(value=self.categories[0])
-        ttk.Combobox(
+        self.category_var = tk.StringVar(value=self.get_all_categories()[0])
+        self.category_dropdown = ttk.Combobox(
             left,
             textvariable=self.category_var,
-            values=self.categories,
+            values=self.get_all_categories(),
             state="readonly",
-        ).pack(pady=5)
+        )
+        self.category_dropdown.pack(pady=5)
 
         self.date_entry = ctk.CTkEntry(left)
         self.date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
@@ -118,16 +160,6 @@ class FinanceManagerUI:
             left, text="Add Expense", command=lambda: self.add_transaction("expense")
         ).pack(pady=3)
 
-        # ---------------- Transaction Filters (move to bottom) ----------------
-        filter_frame = ctk.CTkFrame(left, fg_color="#e6f2ff")  # optional frame
-        self.filter_category = tk.StringVar(value="All")
-        ttk.Combobox(
-            left,
-            textvariable=self.filter_category,
-            values=["All"] + self.categories,
-            state="readonly",
-        ).pack(pady=5)
-
         # ---------------- Center Listbox ----------------
         # Filter frame in center above the listbox
         filter_frame = ctk.CTkFrame(center, fg_color="#e6f2ff")
@@ -135,12 +167,14 @@ class FinanceManagerUI:
 
         # Category filter
         self.filter_category = tk.StringVar(value="All")
-        ttk.Combobox(
+
+        self.filter_dropdown = ttk.Combobox(
             filter_frame,
             textvariable=self.filter_category,
-            values=["All"] + self.categories,
+            values=["All"] + self.get_all_categories(),
             state="readonly",
-        ).pack(side="left", padx=5, pady=5)
+        )
+        self.filter_dropdown.pack(side="left", padx=5, pady=5)
 
         # Date filter
         self.filter_date = ctk.CTkEntry(filter_frame, placeholder_text="YYYY-MM-DD")
@@ -178,10 +212,18 @@ class FinanceManagerUI:
 
         # Budget Overview (colored)
         self.budget_labels = {}
-        for cat in self.categories:
+        for cat in self.get_all_categories():
             lbl = ctk.CTkLabel(right, text=f"{cat}: $0 / $0", text_color="black")
             lbl.pack(pady=2)
             self.budget_labels[cat] = lbl
+
+    def add_custom_category_to_overview(self, cat):
+        right = self.budget_labels[next(iter(self.budget_labels))].master
+
+        lbl = ctk.CTkLabel(right, text=f"{cat}: $0 / $0", text_color="black")
+        lbl.pack(pady=2)
+
+        self.budget_labels[cat] = lbl
 
     #
     def add_transaction_from_income_entry(self):
@@ -197,7 +239,8 @@ class FinanceManagerUI:
 
         date = datetime.now().strftime("%Y-%m-%d")
         if not self.user_id:  # Guest
-            tid = len(self.guest_transactions) + 1
+            tid = self.next_guest_tid
+            self.next_guest_tid += 1
             self.guest_transactions.append((tid, amount, "Income", date, "income"))
         else:
             self.db.add_transaction(self.user_id, amount, "Income", date, "income")
@@ -305,8 +348,20 @@ class FinanceManagerUI:
     def delete_transaction(self):
         try:
             sel = self.transaction_list.get(self.transaction_list.curselection())
-            tid = sel.split("|")[0].strip()
-            self.db.delete_transaction(self.user_id, tid)
+
+            if not self.user_id:  # Guest mode
+                # Remove "(Guest)" prefix if it exists
+                tid_str = sel.replace("(Guest)", "").split("|")[0].strip()
+                tid = int(tid_str)
+
+                # Remove from guest_transactions list
+                self.guest_transactions = [
+                    t for t in self.guest_transactions if t[0] != tid
+                ]
+            else:
+                tid = int(sel.split("|")[0].strip())
+                self.db.delete_transaction(self.user_id, tid)
+
             self.load_transactions()
         except:
             pass
@@ -314,35 +369,74 @@ class FinanceManagerUI:
     # ---------------- BUDGET ----------------
     def setup_budgets_tab(self):
 
-        container = ctk.CTkFrame(self.budgets_tab, fg_color="#cce6ff")
-        container.pack(pady=20)
+        self.budget_container = ctk.CTkFrame(self.budgets_tab, fg_color="#cce6ff")
+        self.budget_container.pack(pady=20)
+
+        # 🔥 ADD CATEGORY INPUT (TOP)
+        top = ctk.CTkFrame(self.budget_container, fg_color="#cce6ff")
+        top.pack(pady=10)
+
+        self.new_category_entry = ctk.CTkEntry(top, placeholder_text="New Category")
+        self.new_category_entry.pack(side="left", padx=5)
+
+        ctk.CTkButton(top, text="Add Category", command=self.handle_add_category).pack(
+            side="left", padx=5
+        )
 
         self.budget_entries = {}
 
-        for cat in self.categories:
-            row = ctk.CTkFrame(container, fg_color="#cce6ff")
-            row.pack(pady=5)
+        for cat in self.get_all_categories():
+            top = ctk.CTkFrame(self.budget_container, fg_color="#cce6ff")
+            top.pack(pady=5)
 
             ctk.CTkLabel(
-                row,
+                top,
                 text=cat,
                 width=120,
                 text_color="#002244",
             ).pack(side="left", padx=5)
 
-            entry = ctk.CTkEntry(row)
+            entry = ctk.CTkEntry(top)
             entry.insert(0, "0")
             entry.pack(side="left")
 
             self.budget_entries[cat] = entry
+        # ✅ RIGHT PLACE
+        ctk.CTkButton(
+            self.budget_container, text="Save Budgets", command=self.save_budgets
+        ).pack(pady=10)
 
-        ctk.CTkButton(container, text="Save Budgets", command=self.save_budgets).pack(
-            pady=10
+    # Handle Add Category button click
+    def handle_add_category(self):
+        cat = self.new_category_entry.get().strip()
+
+        if not cat:
+            messagebox.showerror("Error", "Enter a category name")
+            return
+
+        if cat in self.get_all_categories():
+            messagebox.showerror("Error", "Category already exists")
+            return
+
+        self.add_custom_category(cat)
+        self.new_category_entry.delete(0, tk.END)
+
+    # ---------------- ADD CUSTOM CATEGORY TO BUDGET TAB ----------------
+    def add_custom_category_to_budget_tab(self, cat):
+        container = self.budgets_tab.winfo_children()[0]  # main container
+
+        row = ctk.CTkFrame(container, fg_color="#cce6ff")
+        row.pack(pady=5)
+
+        ctk.CTkLabel(row, text=cat, width=120, text_color="#002244").pack(
+            side="left", padx=5
         )
 
-        ctk.CTkButton(
-            container, text="Expense Pie Chart", command=self.show_expense_pie_chart
-        ).pack(pady=10)
+        entry = ctk.CTkEntry(row)
+        entry.insert(0, "0")
+        entry.pack(side="left")
+
+        self.budget_entries[cat] = entry
 
     def update_budget(self):
         rows = (
@@ -351,9 +445,13 @@ class FinanceManagerUI:
             else self.db.get_all_transactions(self.user_id)
         )
 
-        for cat in self.categories:
+        for cat in self.get_all_categories():
             spent = sum(abs(a) for _, a, c, _, _ in rows if c == cat and a < 0)
-            limit = self.guest_budgets[cat] if not self.user_id else self.budgets[cat]
+            limit = (
+                self.guest_budgets.get(cat, 0)
+                if not self.user_id
+                else self.budgets.get(cat, 0)
+            )
 
             if not self.follow_budget:
                 text = f"{cat}: IGNORED"
@@ -372,25 +470,35 @@ class FinanceManagerUI:
                 self.budget_labels[cat].configure(text=text, text_color=color)
 
     def save_budgets(self):
-        if not self.user_id:  # Guest mode
-            for cat, entry in self.budget_entries.items():
-                try:
-                    self.guest_budgets[cat] = float(entry.get())
-                except:
-                    self.guest_budgets[cat] = 0
-            self.update_budget()
-            messagebox.showinfo("Saved", "Budgets updated (Guest Mode)")
-            return
+        is_guest = not self.user_id
 
-        # Regular user
+        # Save entered budgets
         for cat, entry in self.budget_entries.items():
             try:
-                self.budgets[cat] = float(entry.get())
+                value = float(entry.get())
             except:
-                self.budgets[cat] = 0
+                value = 0
+
+            if is_guest:
+                self.guest_budgets[cat] = value
+            else:
+                self.budgets[cat] = value
+
+        # ✅ Ensure ALL categories exist (including custom)
+        for cat in self.get_all_categories():
+            if is_guest:
+                if cat not in self.guest_budgets:
+                    self.guest_budgets[cat] = 0
+            else:
+                if cat not in self.budgets:
+                    self.budgets[cat] = 0
 
         self.update_budget()
-        messagebox.showinfo("Saved", "Budgets updated")
+
+        if is_guest:
+            messagebox.showinfo("Saved", "Budgets updated (Guest Mode)")
+        else:
+            messagebox.showinfo("Saved", "Budgets updated")
 
     # ---------------- PIE CHARTS ----------------
     def show_expense_pie_chart(self):
@@ -473,7 +581,7 @@ class FinanceManagerUI:
 
         ctk.CTkButton(
             self.reports_tab,
-            text="DELETE ALL DATA",
+            text="RESET DATA",
             fg_color="#ff4d4d",
             text_color="black",
             command=self.reset_data,
@@ -531,7 +639,7 @@ class FinanceManagerUI:
 
         if not self.user_id:  # Guest
             self.guest_transactions.clear()
-            self.guest_budgets = {cat: 0 for cat in self.categories}
+            self.guest_budgets = {cat: 0 for cat in self.get_all_categories()}
         else:  # Regular user
             self.db.reset_user_transactions(self.user_id)
 
