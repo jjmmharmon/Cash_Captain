@@ -346,25 +346,33 @@ class FinanceManagerUI:
         self.update_budget()
 
     def delete_transaction(self):
+        selection = self.transaction_list.curselection()
+
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a transaction.")
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirm Delete", "Are you sure you want to delete this transaction?"
+        )
+        if not confirm:
+            return
+
+        index = selection[0]
+
         try:
-            sel = self.transaction_list.get(self.transaction_list.curselection())
-
-            if not self.user_id:  # Guest mode
-                # Remove "(Guest)" prefix if it exists
-                tid_str = sel.replace("(Guest)", "").split("|")[0].strip()
-                tid = int(tid_str)
-
-                # Remove from guest_transactions list
-                self.guest_transactions = [
-                    t for t in self.guest_transactions if t[0] != tid
-                ]
+            if not self.user_id:  # Guest
+                del self.guest_transactions[index]
             else:
-                tid = int(sel.split("|")[0].strip())
+                # Create a list of DB IDs in same order as listbox
+                db_ids = [t[0] for t in self.db.get_all_transactions(self.user_id)]
+                tid = db_ids[index]
                 self.db.delete_transaction(self.user_id, tid)
 
             self.load_transactions()
-        except:
-            pass
+            messagebox.showinfo("Deleted", "Transaction deleted successfully.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to delete: {e}")
 
     # ---------------- BUDGET ----------------
     def setup_budgets_tab(self):
@@ -614,19 +622,28 @@ class FinanceManagerUI:
         )
 
         if not rows:
-            messagebox.showinfo("No Data", "Nothing to export.")
+            messagebox.showinfo("No Data", "No transactions to export.")
             return
 
-        file = filedialog.asksaveasfilename(defaultextension=".csv")
-        if not file:
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            title="Save CSV File",
+        )
+        if not file_path:
             return
 
-        with open(file, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["ID", "Amount", "Category", "Date", "Type"])
-            writer.writerows(rows)
+        try:
+            with open(file_path, "w", newline="") as file:
+                writer = csv.writer(file)
+                writer.writerow(["ID", "Type", "Amount", "Category", "Date"])
+                for t in rows:
+                    tid, amt, cat, date, ttype = t
+                    writer.writerow([tid, ttype, amt, cat, date])
 
-        messagebox.showinfo("Export", "CSV Exported")
+            messagebox.showinfo("Exported", f"CSV saved to:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export CSV:\n{e}")
 
     def reset_data(self):
         confirm = messagebox.askyesno("Warning", "Delete ALL data?")
