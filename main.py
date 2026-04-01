@@ -1,5 +1,3 @@
-from logging import root
-
 import customtkinter as ctk
 from tkinter import messagebox
 from db_manager import DatabaseManager
@@ -31,6 +29,11 @@ class LoginPage:
 
     # ---------------- LOGIN ----------------
     def show_login(self):
+        # Prevent multiple popups
+        if hasattr(self, "popup") and self.popup.winfo_exists():
+            self.popup.focus()
+            return
+
         self.popup = ctk.CTkToplevel(self.root)
         self.popup.title("Login")
         self.popup.geometry("300x220")
@@ -45,6 +48,12 @@ class LoginPage:
         self.password_entry.pack(pady=5)
 
         ctk.CTkButton(self.popup, text="Login", command=self.login_user).pack(pady=15)
+
+        # Press Enter to login
+        self.popup.bind("<Return>", lambda e: self.login_user())
+
+        # Focus cursor automatically
+        self.username_entry.focus()
 
     def login_user(self):
         username = self.username_entry.get()
@@ -61,6 +70,11 @@ class LoginPage:
 
     # ---------------- CREATE USER ----------------
     def show_create(self):
+        # Prevent multiple popups
+        if hasattr(self, "popup") and self.popup.winfo_exists():
+            self.popup.focus()
+            return
+
         self.popup = ctk.CTkToplevel(self.root)
         self.popup.title("Create User")
         self.popup.geometry("300x220")
@@ -75,6 +89,12 @@ class LoginPage:
         self.new_password.pack(pady=5)
 
         ctk.CTkButton(self.popup, text="Create", command=self.create_user).pack(pady=15)
+
+        # Press Enter to create account
+        self.popup.bind("<Return>", lambda e: self.create_user())
+
+        # Focus cursor automatically
+        self.new_username.focus()
 
     def create_user(self):
         username = self.new_username.get()
@@ -96,22 +116,17 @@ class LoginPage:
 
     # ---------------- DASHBOARD ----------------
     def start_dashboard(self, user_id):
-
-        # 🔴 Destroy login window completely
-        self.root.destroy()
-
-        # ✅ Create NEW root window for dashboard
-        dash = ctk.CTk()
+        # Clear current window instead of destroying
+        for widget in self.root.winfo_children():
+            widget.destroy()
 
         if user_id:
-            dash.title("Cash Captain")
+            self.root.title("Cash Captain")
         else:
-            dash.title("Cash Captain (Guest Mode)")
+            self.root.title("Cash Captain (Guest Mode)")
 
-        # Launch app
-        FinanceManagerUI(dash, self.db, user_id)
-
-        dash.mainloop()
+        # Launch dashboard inside SAME window
+        FinanceManagerUI(self.root, self.db, user_id)
 
 
 # ---------------- MAIN ----------------
