@@ -11,6 +11,8 @@ class DatabaseManager:
         os.makedirs(base_dir, exist_ok=True)
         db_path = os.path.join(base_dir, db_name)
         print("DB PATH:", db_path)
+ 
+        
 
         try:
             # Connect to database (auto-creates if missing)
@@ -35,6 +37,7 @@ class DatabaseManager:
 
     def create_tables(self):
         with self.conn:
+            # Users
             self.conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS users (
@@ -45,6 +48,7 @@ class DatabaseManager:
             """
             )
 
+            # Transactions
             self.conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS transactions (
@@ -55,6 +59,32 @@ class DatabaseManager:
                     date TEXT NOT NULL,
                     type TEXT NOT NULL,
                     FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            """
+            )
+
+            # Budgets
+            self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS budgets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                category TEXT NOT NULL,
+                month TEXT NOT NULL,
+                year INTEGER NOT NULL,
+                limit_amount REAL NOT NULL,
+
+                UNIQUE(user_id, category, month, year)
+            )
+            """)  
+
+            # Custom Categories
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS categories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    category TEXT NOT NULL,
+                    UNIQUE(user_id, category)
                 )
             """
             )
@@ -104,6 +134,19 @@ class DatabaseManager:
                 return user_id
         return None
 
+
+    # --------------------------
+    # Budget loader
+    # --------------------------
+    def load_budgets(self, user_id, month, year):
+        cursor = self.conn.execute("""
+            SELECT category, limit_amount
+            FROM budgets
+            WHERE user_id = ? AND month = ? AND year = ?
+        """, (user_id, month, year))
+
+        return {row[0]: row[1] for row in cursor.fetchall()}
+    
     # --------------------------
     # TRANSACTION METHODS
     # --------------------------
@@ -212,6 +255,76 @@ class DatabaseManager:
         with self.conn:
             self.conn.execute("DELETE FROM transactions WHERE user_id = ?", (user_id,))
 
+    # --------------------------
+    # Save/ Update Budget
+    # --------------------------
+
+    def save_budget(self, user_id, category, month, year, limit_amount):
+        with self.conn:
+            self.conn.execute("""
+                INSERT INTO budgets (user_id, category, month, year, limit_amount)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, category, month, year)
+                DO UPDATE SET limit_amount = excluded.limit_amount
+            """, (user_id, category, month, year, limit_amount))
+
+    # --------------------------
+    # Check Budget
+    # --------------------------
+    def check_budget_status(self, user_id, category, month, year):
+        limit = self.get_budget_status(user_id, category, month, year)["limit"]
+        spent = self.get_budget_usage(user_id, category, month, year)
+
+        return {
+            "limit": limit,
+            "spent": spent,
+            "remaining": max(limit - spent, 0)
+        }
+
+    def get_budget_status(self, user_id, category, month, year):
+        cursor = self.conn.execute("""
+            SELECT limit_amount
+            FROM budgets
+            WHERE user_id = ? AND category = ? AND month = ? AND year = ?
+        """, (user_id, category, month, year))
+
+        result = cursor.fetchone()
+        limit_amount = result[0] if result else 0
+
+        spent = self.get_budget_usage(user_id, category, month, year)
+
+        return {
+            "limit": limit_amount,
+            "spent": spent,
+            "remaining": max(limit_amount - spent, 0)
+        }
+        
+    # --------------------------
+    # Get Budget
+    # --------------------------
+    def get_budget_usage(self, user_id, category, month, year):
+        cursor = self.conn.execute("""
+            SELECT COALESCE(SUM(amount), 0)
+            FROM transactions
+            WHERE user_id = ?
+            AND category = ?
+            AND strftime('%m', date) = ?
+            AND strftime('%Y', date) = ?
+            AND amount < 0
+        """, (user_id, category, month.zfill(2), str(year)))
+
+        return abs(cursor.fetchone()[0])
+    
+    def get_budget(self, user_id, category, month, year):
+        cursor = self.conn.execute("""
+            SELECT limit_amount
+            FROM budgets
+            WHERE user_id = ? AND category = ? AND month = ? AND year = ?
+        """, (user_id, category, month, year))
+
+        result = cursor.fetchone()
+        return result[0] if result else 0
+    
     # --------------------------
     # UTILITIES
     # --------------------------

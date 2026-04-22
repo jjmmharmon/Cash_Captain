@@ -11,6 +11,9 @@ class FinanceManagerUI:
         self.root = root
         self.db = db
         self.user_id = user_id
+        
+
+        
 
         # Categories must be defined first
         self.default_categories = [
@@ -21,24 +24,32 @@ class FinanceManagerUI:
             "Savings",
             "Misc",
         ]
-        self.next_guest_tid = 1  # Unique ID counter for guest transactions
         self.custom_categories = []
+
         self.budgets = {cat: 0 for cat in self.default_categories}
         self.guest_budgets = {cat: 0 for cat in self.default_categories}
-        self.guest_transactions = []  # Guest transactions
+
+        self.guest_transactions = []
+        self.next_guest_tid = 1
         self.follow_budget = True
 
         ctk.set_default_color_theme("blue")
 
+    # ---------------- LOAD FROM DATABASE ----------------
+        self.load_budgets_from_db()
+
+    # 🔥 CRITICAL FIX: rebuild categories BEFORE UI
+        self.rebuild_categories_from_db()
+
+    # ---------------- BUILD UI ----------------
         self.create_tabs()
         self.setup_dashboard_tab()
         self.setup_transactions_tab()
         self.setup_budgets_tab()
         self.setup_reports_tab()
 
-        # 🔐 Load transactions if logged in
+    # ---------------- FINAL LOAD ----------------
         self.load_transactions()
-
     # ---------------- TABS ----------------
     def create_tabs(self):
         self.notebook = ttk.Notebook(self.root)
@@ -78,35 +89,151 @@ class FinanceManagerUI:
             font=("Calibri", 20),
         ).pack(pady=8)
 
+
+    #----------------- Sync Categories ----------------
+    def sync_categories_from_db(self, db_budgets):
+        for cat in db_budgets.keys():
+            if cat not in self.get_all_categories():
+                self.custom_categories.append(cat)
+    # ---------------- Reload Budget ----------------
+    def reload_budgets(self):
+        if not self.user_id:
+            return
+
+        month = datetime.now().strftime("%m")
+        year = datetime.now().year
+
+        db_budgets = self.db.load_budgets(self.user_id, month, year)
+
+        self.sync_categories_from_db(db_budgets)
+
+        for cat in self.get_all_categories():
+            self.budgets[cat] = db_budgets.get(cat, 0)
+    # ---------------- Get Spent ----------------
+    def get_spent(self, category):
+        rows = (
+            self.guest_transactions
+            if not self.user_id
+            else self.db.get_all_transactions(self.user_id)
+        )
+
+        return sum(
+            abs(a)
+            for _, a, c, _, _ in rows
+            if c == category and a < 0
+        )
+        
+    # ---------------- rebuild categories ----------------
+    def rebuild_categories_from_db(self):
+        if not self.user_id:
+            return
+
+        month = datetime.now().strftime("%m")
+        year = datetime.now().year
+
+        db_budgets = self.db.load_budgets(self.user_id, month, year)
+
+        # rebuild custom categories cleanly
+        self.custom_categories = [c for c in db_budgets.keys() if c not in self.default_categories]
+
+        # rebuild budget dictionaries
+        for cat in self.custom_categories:
+            self.budgets.setdefault(cat, db_budgets.get(cat, 0))
+
+        # refresh UI components if they exist
+        if hasattr(self, "category_dropdown"):
+            self.category_dropdown["values"] = self.get_all_categories()
+
+        if hasattr(self, "filter_dropdown"):
+            self.filter_dropdown["values"] = ["All"] + self.get_all_categories()
+
+        if hasattr(self, "budget_container"):
+            self.rebuild_budget_tab()
+
+        if hasattr(self, "budget_labels"):
+            self.update_budget()
+        
+        
+    # ---------------- Rebuild Budget tab ----------------
+    def rebuild_budget_tab(self):
+        if not hasattr(self, "budget_container"):
+            return
+
+        # destroy old UI rows
+        for widget in self.budget_container.winfo_children():
+            widget.destroy()
+
+        self.budget_entries = {}
+
+        # Add category input row first
+        top = ctk.CTkFrame(self.budget_container, fg_color="#cce6ff")
+        top.pack(pady=10)
+
+        self.new_category_entry = ctk.CTkEntry(top, placeholder_text="New Category")
+        self.new_category_entry.pack(side="left", padx=5)
+
+        ctk.CTkButton(
+            top,
+            text="Add Category",
+            command=self.handle_add_category
+        ).pack(side="left", padx=5)
+
+        for cat in self.get_all_categories():
+            row = ctk.CTkFrame(self.budget_container, fg_color="#cce6ff")
+            row.pack(pady=5)
+
+            ctk.CTkLabel(row, text=cat, width=120).pack(side="left", padx=5)
+
+            entry = ctk.CTkEntry(row)
+            entry.insert(0, str(self.budgets.get(cat, 0)))
+            entry.pack(side="left")
+
+            self.budget_entries[cat] = entry   # FIXED HERE
+
+        ctk.CTkButton(
+            self.budget_container,
+            text="Save Budgets",
+            command=self.save_budgets
+        ).pack(pady=10)
     # ---------------- CATEGORIES Getter ----------------
+    def _refresh_budget_flow(self):
+        self.reload_budgets()
+        self.update_budget()
+    # ---------------- CATEGORIES all getter ----------------
     def get_all_categories(self):
         return self.default_categories + self.custom_categories
 
     # ---------------- ADD CUSTOM CATEGORY ----------------
     def add_custom_category(self, cat):
-        self.custom_categories.append(cat)
+        if cat not in self.custom_categories:
+            self.custom_categories.append(cat)
 
         # Add to budget data
         self.budgets[cat] = 0
         self.guest_budgets[cat] = 0
 
-        # ✅ Add to Budget Tab
-        self.add_custom_category_to_budget_tab(cat)
+        # ---------------- SAVE TO DATABASE ----------------
+        if self.user_id:
+            month = datetime.now().strftime("%m")
+            year = datetime.now().year
 
-        # ✅ Add to right-side overview
+            # store category as a budget entry (0 default)
+            self.db.save_budget(self.user_id, cat, month, year, 0)
+
+    # ---------------- UI UPDATES ----------------
+        self.add_custom_category_to_budget_tab(cat)
         self.add_custom_category_to_overview(cat)
 
-        # ✅ Update transaction dropdown
         if hasattr(self, "category_dropdown"):
             self.category_dropdown["values"] = self.get_all_categories()
 
-        # ✅ Update filter dropdown
         if hasattr(self, "filter_dropdown"):
             self.filter_dropdown["values"] = ["All"] + self.get_all_categories()
 
         if hasattr(self, "budget_labels"):
             self.update_budget()
 
+        self.root.after(100, self._refresh_budget_flow)
     # ---------------- TRANSACTIONS ----------------
     def setup_transactions_tab(self):
         main = ctk.CTkFrame(self.transactions_tab)
@@ -142,12 +269,12 @@ class FinanceManagerUI:
         self.amount_entry = ctk.CTkEntry(left, placeholder_text="Amount")
         self.amount_entry.pack(pady=5)
 
-        self.category_var = tk.StringVar(value=self.get_all_categories()[0])
+        cats = self.get_all_categories()
+        self.category_var = tk.StringVar(value=cats[0] if cats else "")
         self.category_dropdown = ttk.Combobox(
             left,
             textvariable=self.category_var,
-            values=self.get_all_categories(),
-            state="readonly",
+            values=self.get_all_categories() or ["No Categories"]
         )
         self.category_dropdown.pack(pady=5)
 
@@ -218,14 +345,17 @@ class FinanceManagerUI:
             self.budget_labels[cat] = lbl
 
     def add_custom_category_to_overview(self, cat):
-        right = self.budget_labels[next(iter(self.budget_labels))].master
+        if not self.budget_labels:
+            return
+
+        right = next(iter(self.budget_labels.values())).master
 
         lbl = ctk.CTkLabel(right, text=f"{cat}: $0 / $0", text_color="black")
         lbl.pack(pady=2)
 
         self.budget_labels[cat] = lbl
 
-    #
+    # ---------------- ADD INCOME FROM TOP ENTRY ----------------
     def add_transaction_from_income_entry(self):
         try:
             amount = float(self.income_entry.get())
@@ -237,16 +367,45 @@ class FinanceManagerUI:
             messagebox.showerror("Error", "Income must be positive")
             return
 
-        date = datetime.now().strftime("%Y-%m-%d")
-        if not self.user_id:  # Guest
+        result = messagebox.askyesno(
+            "Income Type", "Press YES = Income\nPress NO = Savings"
+        )
+
+        category = "Income"
+        t_type = "income"
+        trans_date = datetime.now().strftime("%Y-%m-%d")
+
+        if not self.user_id:
             tid = self.next_guest_tid
             self.next_guest_tid += 1
-            self.guest_transactions.append((tid, amount, "Income", date, "income"))
+            self.guest_transactions.append(
+                (tid, amount, category, trans_date, t_type)
+            )
         else:
-            self.db.add_transaction(self.user_id, amount, "Income", date, "income")
+            self.db.add_transaction(
+                self.user_id, amount, category, trans_date, t_type
+            )
 
         self.income_entry.delete(0, tk.END)
         self.load_transactions()
+        
+        
+    #------------------------
+    # DB Loader
+    #------------------------
+
+    def load_budgets_from_db(self):
+            if not self.user_id:
+                return
+
+            month = datetime.now().strftime("%m")
+            year = datetime.now().year
+
+            db_budgets = self.db.load_budgets(self.user_id, month, year)
+
+            # merge into existing categories safely
+            for cat in self.get_all_categories():
+                self.budgets[cat] = db_budgets.get(cat, 0)
 
     # ---------------- LOGIC ----------------
     def toggle_budget(self):
@@ -272,37 +431,51 @@ class FinanceManagerUI:
             amount = -amount
 
         category = self.category_var.get() if t == "expense" else "Income"
-        date = self.date_entry.get()
 
-        # Budget enforcement only for expenses
+        try:
+            trans_date = datetime.strptime(
+                self.date_entry.get(), "%Y-%m-%d"
+            ).strftime("%Y-%m-%d")
+        except:
+            messagebox.showerror("Error", "Date must be YYYY-MM-DD")
+            return
+    # ----------------------------
+    # Budget enforcement (MONTHLY)
+    # ----------------------------
         if t == "expense" and self.follow_budget:
-            limit = (
-                self.guest_budgets.get(category, 0)
-                if is_guest
-                else self.budgets.get(category, 0)
-            )
-            rows = (
-                self.guest_transactions
-                if is_guest
-                else self.db.get_all_transactions(self.user_id)
-            )
-            spent = sum(abs(a) for _, a, c, _, _ in rows if c == category and a < 0)
+
+
+            if is_guest:
+                limit = self.guest_budgets.get(category, 0)
+            else:
+                limit = self.budgets.get(category, 0)
+
+            spent = self.get_spent(category)
 
             if limit > 0 and spent + abs(amount) > limit:
-                over = spent + abs(amount) - limit
-                messagebox.showerror("Blocked", f"Budget exceeded by ${over:.2f}!")
+                over = (spent + abs(amount)) - limit
+                messagebox.showerror(
+                    "Blocked",
+                    f"Budget exceeded by ${over:.2f}!"
+                )
                 return
 
-        # Save transaction
+    # ----------------------------
+    # Save transaction
+    # ----------------------------
         if is_guest:
             tid = len(self.guest_transactions) + 1
-            self.guest_transactions.append((tid, amount, category, date, t))
+            self.guest_transactions.append(
+                (tid, amount, category, trans_date, t)
+            )
         else:
-            self.db.add_transaction(self.user_id, amount, category, date, t)
+            self.db.add_transaction(
+                self.user_id, amount, category, trans_date, t
+            )
 
         self.load_transactions()
 
-    #
+    
     def clear_filters(self):
         self.filter_category.set("All")
         self.filter_date.delete(0, tk.END)
@@ -316,30 +489,26 @@ class FinanceManagerUI:
             if not self.user_id
             else self.db.get_all_transactions(self.user_id)
         )
+
         balance = 0
 
-        for tid, amt, cat, date, t in rows:
-            # Category filter
-            if (
-                getattr(self, "filter_category", tk.StringVar(value="All")).get()
-                != "All"
-                and cat != self.filter_category.get()
-            ):
+        for tid, amt, cat, trans_date, t in rows:
+            category_filter = self.filter_category.get()
+            if category_filter != "All" and cat != category_filter:
                 continue
 
-            # Date filter
-            if (
-                getattr(self, "filter_date", tk.Entry()).get()
-                and date != self.filter_date.get()
-            ):
+            date_filter = self.filter_date.get().strip()
+            if date_filter and trans_date != date_filter:
                 continue
 
             balance += amt
+
             display_text = (
-                f"(Guest) {cat} | {amt:.2f} | {date}"
+                f"(Guest) {cat} | {amt:.2f} | {trans_date}"
                 if not self.user_id
-                else f"{tid} | {cat} | {amt:.2f} | {date}"
+                else f"{tid} | {cat} | {amt:.2f} | {trans_date}"
             )
+
             self.transaction_list.insert(tk.END, display_text)
 
         self.balance_label.configure(text=f"Balance: ${balance:.2f}")
@@ -405,7 +574,7 @@ class FinanceManagerUI:
             ).pack(side="left", padx=5)
 
             entry = ctk.CTkEntry(top)
-            entry.insert(0, "0")
+            entry.insert(0, str(self.budgets.get(cat, 0)))
             entry.pack(side="left")
 
             self.budget_entries[cat] = entry
@@ -447,26 +616,18 @@ class FinanceManagerUI:
         self.budget_entries[cat] = entry
 
     def update_budget(self):
-        rows = (
-            self.guest_transactions
-            if not self.user_id
-            else self.db.get_all_transactions(self.user_id)
-        )
-
         for cat in self.get_all_categories():
-            spent = sum(abs(a) for _, a, c, _, _ in rows if c == cat and a < 0)
-            limit = (
-                self.guest_budgets.get(cat, 0)
-                if not self.user_id
-                else self.budgets.get(cat, 0)
-            )
+
+            spent = self.get_spent(cat)
+            limit = self.budgets.get(cat, 0)
 
             if not self.follow_budget:
                 text = f"{cat}: IGNORED"
                 color = "gray"
             else:
                 text = f"{cat}: ${spent:.2f} / ${limit:.2f}"
-                if spent > limit and limit > 0:
+
+                if limit > 0 and spent > limit:
                     color = "red"
                     text += " (OVER)"
                 elif 0 < limit - spent <= 10:
@@ -474,11 +635,14 @@ class FinanceManagerUI:
                 else:
                     color = "green"
 
-            if hasattr(self, "budget_labels") and cat in self.budget_labels:
+            if cat in self.budget_labels:
                 self.budget_labels[cat].configure(text=text, text_color=color)
-
+    
     def save_budgets(self):
         is_guest = not self.user_id
+
+        month = datetime.now().strftime("%m")
+        year = datetime.now().year
 
         # Save entered budgets
         for cat, entry in self.budget_entries.items():
@@ -488,25 +652,34 @@ class FinanceManagerUI:
                 value = 0
 
             if is_guest:
+                # Guest mode stays in memory only
                 self.guest_budgets[cat] = value
             else:
+                # 🔥 SAVE TO DATABASE (IMPORTANT FIX)
+                self.db.save_budget(
+                    self.user_id,
+                    cat,
+                    month,
+                    year,
+                    value
+                )
+
+                # keep local cache in sync
                 self.budgets[cat] = value
 
-        # ✅ Ensure ALL categories exist (including custom)
+        # Ensure all categories exist locally
         for cat in self.get_all_categories():
             if is_guest:
-                if cat not in self.guest_budgets:
-                    self.guest_budgets[cat] = 0
+                self.guest_budgets.setdefault(cat, 0)
             else:
-                if cat not in self.budgets:
-                    self.budgets[cat] = 0
+                self.budgets.setdefault(cat, 0)
 
-        self.update_budget()
+        self._refresh_budget_flow()
 
-        if is_guest:
-            messagebox.showinfo("Saved", "Budgets updated (Guest Mode)")
-        else:
-            messagebox.showinfo("Saved", "Budgets updated")
+        messagebox.showinfo(
+            "Saved",
+            "Budgets updated (Guest Mode)" if is_guest else "Budgets saved to database"
+        )
 
     # ---------------- PIE CHARTS ----------------
     def show_expense_pie_chart(self):
@@ -547,6 +720,7 @@ class FinanceManagerUI:
             messagebox.showerror("Error", "No data available.")
             return
 
+        
         totals = {"Income": 0, "Expenses": 0}
         for _, amount, _, _, _ in rows:
             if amount >= 0:
@@ -663,3 +837,4 @@ class FinanceManagerUI:
         self.load_transactions()
         self.update_budget()
         messagebox.showinfo("Deleted", "All data erased.")
+        
