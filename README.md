@@ -11,6 +11,7 @@ A local desktop finance manager built with Python, Tkinter, and SQLite.
    cd Cash-Captain
 
 3. Install dependencies:
+   
    pip install -r requirements.txt
    
    pip install custom tkinter
