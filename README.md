@@ -12,6 +12,6 @@ A local desktop finance manager built with Python, Tkinter, and SQLite.
 
 3. Install dependencies:
    pip install -r requirements.txt
-
+   pip install custom tkinter
 4. Run the application:
    python main.py
